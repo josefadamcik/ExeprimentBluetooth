@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">ExperimentBluetooth</string>
+    <string name="err_bluetooth_not_supported">Bluetooth not supported.</string>
+    <string name="err_bluetooth_not_nabled">Please enable bluetooth.</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_enable">Enable</string>
+    <string name="action_scan">Scan for devices</string>
+    <string name="err_bluetooth_unable_to_start_discovery">Unable to start bluetooth discovery</string>
+    <string name="err_permission_needed">Requested permission denied.</string>
+    <string name="action_grant_permission">Grant</string>
 </resources>
