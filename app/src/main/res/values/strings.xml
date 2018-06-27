@@ -8,4 +8,6 @@
     <string name="err_bluetooth_unable_to_start_discovery">Unable to start bluetooth discovery</string>
     <string name="err_permission_needed">Requested permission denied.</string>
     <string name="action_grant_permission">Grant</string>
+    <string name="err_device_already_bonding">Pairing process is in progress.</string>
+    <string name="action_stop_scan">Stop scan</string>
 </resources>

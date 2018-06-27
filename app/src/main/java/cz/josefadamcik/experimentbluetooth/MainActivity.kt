@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.os.Bundle
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.view.View
 import android.content.Intent
@@ -31,7 +32,10 @@ import cz.josefadamcik.experimentbluetooth.ActivityRequest.REQUEST_PERMISSION
  * 00:21:13:00:C1:54
  */
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
+    companion object {
+        const val TAG = "MainActivity"
+    }
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var snackbar: Snackbar? = null
@@ -39,9 +43,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var list: RecyclerView
     private lateinit var buttonScan: Button
     private lateinit var progressScan: ProgressBar
+    private lateinit var buttonStopScan: Button
+    private lateinit var containerScanInProgress: ViewGroup
 
 
-    private var adapter = BlDevicesAdapter(emptyList<BluetoothDevice>())
+    private var adapter = BlDevicesAdapter(emptyList<BluetoothDevice>(), this)
     private var discoveredDevices : MutableList<BluetoothDevice> = ArrayList()
     private var state: State = State.Init
 
@@ -58,12 +64,19 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             val action = intent.action
             Log.d("BT", String.format("broadcast received %s", action))
-            if (BluetoothDevice.ACTION_FOUND == action) {
-                // Discovery has found a device. Get the BluetoothDevice
-                // object and its info from the Intent.
-                val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                discoveredDevices.add(device)
-                adapter.notifyItemInserted(discoveredDevices.size - 1)
+            when (action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    // Discovery has found a device. Get the BluetoothDevice
+                    // object and its info from the Intent.
+                    val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                    onNewDeviceDiscovered(device)
+                }
+                BluetoothDevice.ACTION_CLASS_CHANGED,
+                BluetoothDevice.ACTION_BOND_STATE_CHANGED,
+                BluetoothDevice.ACTION_NAME_CHANGED -> {
+                    val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                    device?.let { onDeviceUpdated(it) }
+                }
             }
         }
     }
@@ -71,13 +84,22 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
         toolbar = findViewById(R.id.my_toolbar)
         list = findViewById(R.id.list)
         buttonScan  = findViewById(R.id.button_scan)
-        buttonScan.setOnClickListener(View.OnClickListener { bluetoothAdapter?.let{startScanForDevices(it)} })
+        buttonStopScan = findViewById(R.id.button_stop_scan)
+        containerScanInProgress = findViewById(R.id.container_scan_inprogress)
         progressScan = findViewById(R.id.progress_scan)
+
+        buttonScan.setOnClickListener { bluetoothAdapter?.let{startDiscovery(it)} }
+        buttonStopScan.setOnClickListener { stopDiscovery() }
+
         setSupportActionBar(toolbar);
+
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+
+        adapter = BlDevicesAdapter(discoveredDevices, this)
         list.adapter = adapter
     }
 
@@ -85,7 +107,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        registerReceiver(discoveryBroadcastReceiver, IntentFilter(BluetoothDevice.ACTION_FOUND))
+        val intentFilter = IntentFilter()
+        intentFilter.addAction(BluetoothDevice.ACTION_FOUND)
+        intentFilter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        intentFilter.addAction(BluetoothDevice.ACTION_CLASS_CHANGED)
+        intentFilter.addAction(BluetoothDevice.ACTION_NAME_CHANGED)
+
+        registerReceiver(discoveryBroadcastReceiver, intentFilter)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermission()
         } else {
@@ -103,7 +131,6 @@ class MainActivity : AppCompatActivity() {
     override fun onBackPressed() {
         if (state == State.Scanning) {
             stopDiscovery()
-            bluetoothAdapter?.let { displayBondedDevices(it) }
         } else {
             super.onBackPressed()
         }
@@ -117,29 +144,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun stopDiscovery() {
-        state = State.Stopped
-        progressScan.isVisible = false
-        buttonScan.isVisible = true
-        bluetoothAdapter?.cancelDiscovery()
-    }
+    override fun onItemSelected(position: Int, bluetoothDevice: BluetoothDevice) {
+        Log.d(TAG, "Selected $position, ${bluetoothDevice.address}")
 
-    private fun startScanForDevices(bluetoothAdapter: BluetoothAdapter) {
-        list.adapter = null
-        adapter = BlDevicesAdapter(discoveredDevices)
-        list.adapter = adapter
-        discoveredDevices.clear()
-        buttonScan.isVisible = false
-        progressScan.isVisible = true
-        state = State.Scanning
-
-        if (!bluetoothAdapter.startDiscovery()) {
-            Snackbar.make(toolbar, R.string.err_bluetooth_unable_to_start_discovery, Snackbar.LENGTH_LONG).show()
+        when (bluetoothDevice.bondState) {
+            BluetoothDevice.BOND_NONE -> connectDevice(bluetoothDevice)
+            BluetoothDevice.BOND_BONDING -> Snackbar.make(toolbar, R.string.err_device_already_bonding, Snackbar.LENGTH_LONG).show()
+            BluetoothDevice.BOND_BONDED -> connectDevice(bluetoothDevice)
+            else -> Log.e(TAG, "Unsupported state ${bluetoothDevice.bondState}")
         }
     }
 
+    private fun connectDevice(bluetoothDevice: BluetoothDevice) {
+        Log.d(TAG, "connect to ${bluetoothDevice.address}")
+        if (state == State.Scanning) {
+            stopDiscovery()
+        }
+//        if (bluetoothDevice.createBond())
+        if (bluetoothDevice.uuids != null) {
+            for (uuid in bluetoothDevice.uuids) {
+                Log.i(TAG, "uuid ${uuid.uuid}")
+            }
+        }
+//        bluetoothAdapter?.apply {
+//
+//        }
+    }
 
-    private fun MainActivity.initBluetooth(bluetoothAdapter: BluetoothAdapter?) {
+    private fun initBluetooth(bluetoothAdapter: BluetoothAdapter?) {
         snackbar?.dismiss()
         if (bluetoothAdapter == null) {
             snackbar = Snackbar.make(toolbar, R.string.err_bluetooth_not_supported, Snackbar.LENGTH_INDEFINITE)
@@ -158,11 +190,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+
+    private fun startDiscovery(bluetoothAdapter: BluetoothAdapter) {
+        buttonScan.isVisible = false
+        containerScanInProgress.isVisible = true
+        state = State.Scanning
+
+        if (!bluetoothAdapter.startDiscovery()) {
+            Snackbar.make(toolbar, R.string.err_bluetooth_unable_to_start_discovery, Snackbar.LENGTH_LONG).show()
+        }
+    }
+
+
+
+    private fun stopDiscovery() {
+        state = State.Stopped
+        containerScanInProgress.isVisible = false
+        buttonScan.isVisible = true
+        bluetoothAdapter?.cancelDiscovery()
+    }
+
+
+    private fun onNewDeviceDiscovered(device: BluetoothDevice) {
+        discoveredDevices.add(device)
+        adapter.notifyItemInserted(discoveredDevices.size - 1)
+    }
+
+
+    private fun onDeviceUpdated(device: BluetoothDevice) {
+        for (i in 0 until discoveredDevices.size) {
+            val oldDevice = discoveredDevices[i]
+            if (oldDevice.address == device.address) {
+                discoveredDevices[i] = device
+            }
+        }
+    }
+
+
+
+
     private fun displayBondedDevices(bluetoothAdapter: BluetoothAdapter) {
         state = State.DisplayingBoundDevices
         if (bluetoothAdapter.bondedDevices.isNotEmpty()) {
-            adapter = BlDevicesAdapter(ArrayList(bluetoothAdapter.bondedDevices))
-            list.adapter = adapter
+            discoveredDevices.clear()
+            discoveredDevices.addAll(bluetoothAdapter.bondedDevices)
+            adapter.notifyDataSetChanged()
         }
     }
 
@@ -208,9 +281,13 @@ class MainActivity : AppCompatActivity() {
 
 
 class BlDevicesAdapter(
-        val items: List<BluetoothDevice>
+        val items: List<BluetoothDevice>,
+        val listener: BlDevicesAdapter.Listener
 
 ): RecyclerView.Adapter<BlDevicesAdapter.ViewHolder>() {
+    interface Listener {
+        fun onItemSelected(position: Int, bluetoothDevice: BluetoothDevice)
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         return ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.device_list_item, parent, false))
@@ -221,11 +298,44 @@ class BlDevicesAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val device = items[position]
         holder.text.text = "${device.name} (${device.address})"
-        holder.subtext.text = "type: ${device.type} state ${device.bondState}"
+        val bondState = when (device.bondState) {
+            BluetoothDevice.BOND_NONE -> "none"
+            BluetoothDevice.BOND_BONDING -> "bonding"
+            BluetoothDevice.BOND_BONDED -> "bonded"
+            else -> "n/a"
+        }
+
+        val deviceType = when(device.type) {
+            BluetoothDevice.DEVICE_TYPE_CLASSIC -> "classic"
+            BluetoothDevice.DEVICE_TYPE_DUAL -> "dual"
+            BluetoothDevice.DEVICE_TYPE_LE -> "LE"
+            BluetoothDevice.DEVICE_TYPE_UNKNOWN -> "unknown"
+            else -> "n/a"
+        }
+
+        val deviceMajorClass =  when(device.bluetoothClass.majorDeviceClass) {
+            BluetoothClass.Device.Major.AUDIO_VIDEO -> "audio/video"
+            BluetoothClass.Device.Major.COMPUTER -> "computer"
+            BluetoothClass.Device.Major.HEALTH -> "health"
+            BluetoothClass.Device.Major.IMAGING -> "imaging"
+            BluetoothClass.Device.Major.MISC -> "misc"
+            BluetoothClass.Device.Major.NETWORKING -> "networking"
+            BluetoothClass.Device.Major.PERIPHERAL -> "peripheral"
+            BluetoothClass.Device.Major.PHONE -> "phone"
+            BluetoothClass.Device.Major.TOY -> "toy"
+            BluetoothClass.Device.Major.UNCATEGORIZED -> "uncategorized"
+            BluetoothClass.Device.Major.WEARABLE -> "wearable"
+            else -> "n/a"
+        }
+
+        holder.subtext.text = "type: $deviceType class: $deviceMajorClass state: $bondState"
     }
 
-    class ViewHolder(view: View): RecyclerView.ViewHolder(view) {
+    inner class ViewHolder(view: View): RecyclerView.ViewHolder(view) {
         var text: TextView = view.findViewById(R.id.text)
         var subtext: TextView = view.findViewById(R.id.subtext)
+        init {
+            view.setOnClickListener { listener.onItemSelected( adapterPosition , items[adapterPosition])}
+        }
     }
 }
