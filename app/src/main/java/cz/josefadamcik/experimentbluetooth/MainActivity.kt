@@ -17,6 +17,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Binder
 import android.util.Log
 import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
@@ -27,6 +28,7 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.snackbar.Snackbar
 import cz.josefadamcik.experimentbluetooth.ActivityRequest.REQUEST_PERMISSION
+import java.util.*
 
 /*
  * 00:21:13:00:C1:54
@@ -35,6 +37,7 @@ import cz.josefadamcik.experimentbluetooth.ActivityRequest.REQUEST_PERMISSION
 class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
     companion object {
         const val TAG = "MainActivity"
+
     }
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -50,13 +53,15 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
     private var adapter = BlDevicesAdapter(emptyList<BluetoothDevice>(), this)
     private var discoveredDevices : MutableList<BluetoothDevice> = ArrayList()
     private var state: State = State.Init
-
     sealed class State {
         object Init : State()
         object WaitingForPermission : State()
         object DisplayingBoundDevices : State()
         object Scanning : State()
         object Stopped : State()
+        data class Binding(val device: BluetoothDevice) : State()
+        data class ServiceDiscovery(val device: BluetoothDevice) : State()
+
     }
 
 
@@ -75,11 +80,17 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED,
                 BluetoothDevice.ACTION_NAME_CHANGED -> {
                     val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                    device?.let { onDeviceUpdated(it) }
+                    onDeviceUpdated(device)
+                }
+                BluetoothDevice.ACTION_UUID -> {
+                    val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                    onServiceDiscoveryFinished(device);
                 }
             }
         }
     }
+
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,6 +123,7 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
         intentFilter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         intentFilter.addAction(BluetoothDevice.ACTION_CLASS_CHANGED)
         intentFilter.addAction(BluetoothDevice.ACTION_NAME_CHANGED)
+        intentFilter.addAction(BluetoothDevice.ACTION_UUID)
 
         registerReceiver(discoveryBroadcastReceiver, intentFilter)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -144,14 +156,29 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
         }
     }
 
+
+
     override fun onItemSelected(position: Int, bluetoothDevice: BluetoothDevice) {
         Log.d(TAG, "Selected $position, ${bluetoothDevice.address}")
 
-        when (bluetoothDevice.bondState) {
-            BluetoothDevice.BOND_NONE -> connectDevice(bluetoothDevice)
+         when (bluetoothDevice.bondState) {
+            BluetoothDevice.BOND_NONE -> bindDevice(bluetoothDevice)
             BluetoothDevice.BOND_BONDING -> Snackbar.make(toolbar, R.string.err_device_already_bonding, Snackbar.LENGTH_LONG).show()
             BluetoothDevice.BOND_BONDED -> connectDevice(bluetoothDevice)
             else -> Log.e(TAG, "Unsupported state ${bluetoothDevice.bondState}")
+        }
+    }
+
+    private fun bindDevice(bluetoothDevice: BluetoothDevice) {
+        Log.d(TAG, "bind to ${bluetoothDevice.address}")
+        if (state == State.Scanning) {
+            stopDiscovery()
+        }
+
+        if (bluetoothDevice.createBond()) {
+            state = State.Binding(bluetoothDevice)
+        } else {
+            Snackbar.make(toolbar, R.string.err_unable_to_start_device_binding, Snackbar.LENGTH_LONG).show()
         }
     }
 
@@ -160,15 +187,23 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
         if (state == State.Scanning) {
             stopDiscovery()
         }
-//        if (bluetoothDevice.createBond())
-        if (bluetoothDevice.uuids != null) {
-            for (uuid in bluetoothDevice.uuids) {
-                Log.i(TAG, "uuid ${uuid.uuid}")
-            }
+
+        //request
+        if (bluetoothDevice.uuids == null) {
+            startServiceDiscoveryForDevice(bluetoothDevice)
+        } else {
+            findUuid(bluetoothDevice)
         }
-//        bluetoothAdapter?.apply {
-//
-//        }
+    }
+
+
+
+    private fun startServiceDiscoveryForDevice(bluetoothDevice: BluetoothDevice) {
+        if (bluetoothDevice.fetchUuidsWithSdp()) {
+            state = State.ServiceDiscovery(bluetoothDevice)
+        } else {
+            Snackbar.make(toolbar, R.string.err_unable_to_start_service_descovery, Snackbar.LENGTH_LONG).show()
+        }
     }
 
     private fun initBluetooth(bluetoothAdapter: BluetoothAdapter?) {
@@ -225,8 +260,62 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
                 discoveredDevices[i] = device
             }
         }
+
+        state.let { state ->
+            if (device.bondState == BluetoothDevice.BOND_BONDED && state is State.Binding && state.device.address == device.address) {
+                //The device we were waiting for is bound,yay!
+                onDeviceBound(device)
+            }
+        }
     }
 
+    private fun onDeviceBound(device: BluetoothDevice) {
+        Log.d(TAG, "Device bound ${device.address}")
+        state = State.Stopped
+    }
+
+    private fun onServiceDiscoveryFinished(device: BluetoothDevice) {
+        Log.d(TAG, "Service discovery for ${device.address} finished")
+        onDeviceUpdated(device)
+        state =  State.Stopped
+        findUuid(device)
+    }
+
+    private fun findUuid(bluetoothDevice: BluetoothDevice) {
+        if (bluetoothDevice.uuids == null || bluetoothDevice.uuids.isEmpty()) {
+            Snackbar.make(toolbar, R.string.msg_no_uuids_found, Snackbar.LENGTH_LONG).show()
+            return
+        }
+        /*
+        This should be UUID for SPP (serial port profile): 00001101-0000-1000-8000-00805f9b34fb, it's mentioned repeatedly on SO ect
+
+        HC-06 reports also following ie service discovery.
+        00000000-0000-1000-8000-00805f9b34fb
+
+        According to the https://www.bluetooth.com/specifications/assigned-numbers/service-discovery,
+        this is a base UUID.
+
+        1101 is also mentioned above, in the table "Table 2: Service Class Profile Identifiers":
+        "SerialPort	0x1101	Serial Port Profile (SPP)  NOTE: The example SDP record in SPP v1.0 does not include a BluetoothProfileDescriptorList attribute, but some implementations may also use this UUID for the Profile Identifier.	Service Class/ Profile"
+
+        Formula for computation of an 128-bit UUID from a 16/32bit UUID is (according to the core bluetooth spec):
+           128_bit_value = 16_bit_value * 2^96 + Bluetooth_Base_UUID
+           and that is correct that:
+           0x1101 * 2^96 + Bluetooth_Base_UUI = 00001101-0000-1000-8000-00805f9b34fb
+         */
+        var found = false
+        for (uuid in bluetoothDevice.uuids) {
+            Log.i(TAG, "uuid ${uuid.uuid}")
+            if (uuid.uuid == Bluetooth.serialPortProfileUUID) {
+                found = true
+            }
+        }
+        if (!found) {
+            Snackbar.make(toolbar, R.string.err_no_spp_on_device, Snackbar.LENGTH_LONG).show()
+        } else {
+            startService(BluetoothSPPService.createConnectIntent(this, bluetoothDevice))
+        }
+    }
 
 
 

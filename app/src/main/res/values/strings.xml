@@ -10,4 +10,8 @@
     <string name="action_grant_permission">Grant</string>
     <string name="err_device_already_bonding">Pairing process is in progress.</string>
     <string name="action_stop_scan">Stop scan</string>
+    <string name="err_unable_to_start_service_descovery">Unable to start service discovery.</string>
+    <string name="err_unable_to_start_device_binding">Unable to start device pairing.</string>
+    <string name="msg_no_uuids_found">No UUIDS found during service discovery.</string>
+    <string name="err_no_spp_on_device">Serial port profile not available on selected device.</string>
 </resources>
