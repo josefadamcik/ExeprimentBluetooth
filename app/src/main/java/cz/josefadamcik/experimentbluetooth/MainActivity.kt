@@ -258,6 +258,7 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
             val oldDevice = discoveredDevices[i]
             if (oldDevice.address == device.address) {
                 discoveredDevices[i] = device
+                adapter.notifyItemChanged(i)
             }
         }
 

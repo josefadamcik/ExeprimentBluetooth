@@ -1,6 +1,5 @@
 package cz.josefadamcik.experimentbluetooth
 
-import android.app.IntentService
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.Context
@@ -10,7 +9,12 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
-class BluetoothSPPService : IntentService("BluetoothSPP") {
+
+/**
+ * Service runs in the background ant activities can send request via intents and listen to events via
+ * broadcast listeners.
+ */
+class BluetoothSPPService : PersistentIntentService("BluetoothSPP") {
     private enum class Actions {
         ACTION_CONNECT,
         ACTION_DISCONNECT
@@ -77,14 +81,16 @@ class BluetoothSPPService : IntentService("BluetoothSPP") {
     }
 
     private fun onHandleDisconnect() {
-        state.takeIf { it is State.Connected }?.let {
-            Log.i(TAG, "Disconnecting")
-            try {
-                (state as State.Connected).close()
-            } catch (ex: IOException) {
-                Log.e(TAG, "unable to close socket", ex)
+        state.let {
+            if (it is State.Connected) {
+                Log.i(TAG, "Disconnecting")
+                try {
+                    (state as State.Connected).close()
+                } catch (ex: IOException) {
+                    Log.e(TAG, "unable to close socket", ex)
+                }
+                state = State.NotConnected
             }
-            state = State.NotConnected
         }
     }
 
@@ -101,10 +107,27 @@ class BluetoothSPPService : IntentService("BluetoothSPP") {
                 val serialSocket = device.createRfcommSocketToServiceRecord(Bluetooth.serialPortProfileUUID)
                 serialSocket.connect()
                 state = State.Connected(device, serialSocket, serialSocket.inputStream, serialSocket.outputStream)
+                readSocket(serialSocket)
             } catch (ex: Exception) {
+
                 Log.e(TAG, "Unable to connect", ex)
                 state = State.NotConnected
             }
+        }
+
+    }
+
+    private fun readSocket(serialSocket: BluetoothSocket) {
+        //todo: hacky testing ugliness, remove
+        while(true) {
+            val data = serialSocket.inputStream.read()
+            Log.d(TAG, "Read: $data")
+//            if ( data == 0x0A ) { //cr, ignore
+//            } else if ( data == 0x0D ) { //nl, do line feed
+//
+//            } else {
+//
+//            }
         }
 
     }
