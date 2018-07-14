@@ -2,9 +2,9 @@
 <manifest package="cz.josefadamcik.experimentbluetooth"
           xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
     <application
         android:allowBackup="true"
@@ -13,7 +13,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <activity android:name=".MainActivity">
+        <activity android:name=".ui.pair.ChooseDeviceActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
 
@@ -21,7 +21,12 @@
             </intent-filter>
         </activity>
 
-        <service android:name=".BluetoothSPPService" android:exported="false"/>
+        <service
+            android:name=".bluetooth.BluetoothSPPService"
+            android:exported="false"/>
+
+        <activity android:name=".ui.console.SerialConsoleActivity">
+        </activity>
     </application>
 
 </manifest>

@@ -1,4 +1,4 @@
-package cz.josefadamcik.experimentbluetooth
+package cz.josefadamcik.experimentbluetooth.ui.pair
 
 import android.Manifest
 import android.app.Activity
@@ -17,7 +17,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Binder
 import android.util.Log
 import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
@@ -28,13 +27,16 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.snackbar.Snackbar
 import cz.josefadamcik.experimentbluetooth.ActivityRequest.REQUEST_PERMISSION
+import cz.josefadamcik.experimentbluetooth.Bluetooth
+import cz.josefadamcik.experimentbluetooth.bluetooth.BluetoothSPPService
+import cz.josefadamcik.experimentbluetooth.R
 import java.util.*
 
 /*
  * 00:21:13:00:C1:54
  */
 
-class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
+class ChooseDeviceActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
     companion object {
         const val TAG = "MainActivity"
 
@@ -278,7 +280,7 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
     private fun onServiceDiscoveryFinished(device: BluetoothDevice) {
         Log.d(TAG, "Service discovery for ${device.address} finished")
         onDeviceUpdated(device)
-        state =  State.Stopped
+        state = State.Stopped
         findUuid(device)
     }
 
@@ -372,7 +374,7 @@ class MainActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
 
 class BlDevicesAdapter(
         val items: List<BluetoothDevice>,
-        val listener: BlDevicesAdapter.Listener
+        val listener: Listener
 
 ): RecyclerView.Adapter<BlDevicesAdapter.ViewHolder>() {
     interface Listener {
