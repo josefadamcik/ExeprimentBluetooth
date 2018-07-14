@@ -22,6 +22,7 @@ import java.io.OutputStream
  *
  */
 class BluetoothSPPService : PersistentIntentService("BluetoothSPP") {
+
     private enum class Actions {
         Connect,
         Send,
@@ -33,7 +34,7 @@ class BluetoothSPPService : PersistentIntentService("BluetoothSPP") {
         private const val PAR_DEVICE = "device"
         private const val PAR_CONTENT = "content"
         private const val BROADCAST_STATE_CHANGE = "broadcast_state_change"
-        private const val BROADCAST_LINE_RECEIVED = "broadcast_line received"
+        private const val BROADCAST_LINE_RECEIVED = "broadcast_line_received"
 
         fun createConnectIntent(context: Context, device: BluetoothDevice): Intent {
             val intent = createIntent(context)
@@ -56,10 +57,21 @@ class BluetoothSPPService : PersistentIntentService("BluetoothSPP") {
             return intent
         }
 
-        fun createBroadcastIntentFilter(context: Context) {
+        fun createBroadcastIntentFilter(context: Context): IntentFilter {
             val iFilter = IntentFilter()
             iFilter.addAction(BROADCAST_LINE_RECEIVED)
             iFilter.addAction(BROADCAST_STATE_CHANGE)
+            return iFilter
+        }
+
+        fun obtainBroadcastMessage(intent: Intent?) : BluetoothBroadcast {
+            return intent?.action?.let { action: String ->
+                return if (action == BROADCAST_LINE_RECEIVED && intent.hasExtra(PAR_CONTENT)) {
+                    BluetoothBroadcast.LineReceived(intent.getStringExtra(PAR_CONTENT))
+                } else {
+                    BluetoothBroadcast.Invalid
+                }
+            } ?: BluetoothBroadcast.Invalid
         }
 
         private fun createIntent(context: Context) = Intent(context, BluetoothSPPService::class.java)
@@ -77,7 +89,19 @@ class BluetoothSPPService : PersistentIntentService("BluetoothSPP") {
 
     }
 
+    public enum class PublicState {
+        NotConnected,
+        Connecting,
+        Connected,
+        Error
+    }
 
+
+    public sealed class BluetoothBroadcast {
+        object Invalid: BluetoothBroadcast() //unable to process data, invalid state
+        data class LineReceived(val line:String): BluetoothBroadcast()
+        data class StateChanged(val state: PublicState): BluetoothBroadcast()
+    }
 
     private sealed class BluetoothConnectionState {
         object NotConnected : BluetoothConnectionState()

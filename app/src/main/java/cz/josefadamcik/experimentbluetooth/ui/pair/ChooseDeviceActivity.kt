@@ -4,14 +4,11 @@ import android.Manifest
 import android.app.Activity
 import android.os.Bundle
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.view.View
 import android.content.Intent
-import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.TextView
 import cz.josefadamcik.experimentbluetooth.ActivityRequest.REQUEST_ENABLE_BT
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -30,6 +27,7 @@ import cz.josefadamcik.experimentbluetooth.ActivityRequest.REQUEST_PERMISSION
 import cz.josefadamcik.experimentbluetooth.Bluetooth
 import cz.josefadamcik.experimentbluetooth.bluetooth.BluetoothSPPService
 import cz.josefadamcik.experimentbluetooth.R
+import cz.josefadamcik.experimentbluetooth.ui.console.SerialConsoleActivity
 import java.util.*
 
 /*
@@ -38,8 +36,7 @@ import java.util.*
 
 class ChooseDeviceActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
     companion object {
-        const val TAG = "MainActivity"
-
+        const val TAG = "ChooseDeviceActivity"
     }
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -194,7 +191,7 @@ class ChooseDeviceActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
         if (bluetoothDevice.uuids == null) {
             startServiceDiscoveryForDevice(bluetoothDevice)
         } else {
-            findUuid(bluetoothDevice)
+            SerialConsoleActivity.start(this, bluetoothDevice)
         }
     }
 
@@ -281,44 +278,9 @@ class ChooseDeviceActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
         Log.d(TAG, "Service discovery for ${device.address} finished")
         onDeviceUpdated(device)
         state = State.Stopped
-        findUuid(device)
+        SerialConsoleActivity.start(this, device)
     }
 
-    private fun findUuid(bluetoothDevice: BluetoothDevice) {
-        if (bluetoothDevice.uuids == null || bluetoothDevice.uuids.isEmpty()) {
-            Snackbar.make(toolbar, R.string.msg_no_uuids_found, Snackbar.LENGTH_LONG).show()
-            return
-        }
-        /*
-        This should be UUID for SPP (serial port profile): 00001101-0000-1000-8000-00805f9b34fb, it's mentioned repeatedly on SO ect
-
-        HC-06 reports also following ie service discovery.
-        00000000-0000-1000-8000-00805f9b34fb
-
-        According to the https://www.bluetooth.com/specifications/assigned-numbers/service-discovery,
-        this is a base UUID.
-
-        1101 is also mentioned above, in the table "Table 2: Service Class Profile Identifiers":
-        "SerialPort	0x1101	Serial Port Profile (SPP)  NOTE: The example SDP record in SPP v1.0 does not include a BluetoothProfileDescriptorList attribute, but some implementations may also use this UUID for the Profile Identifier.	Service Class/ Profile"
-
-        Formula for computation of an 128-bit UUID from a 16/32bit UUID is (according to the core bluetooth spec):
-           128_bit_value = 16_bit_value * 2^96 + Bluetooth_Base_UUID
-           and that is correct that:
-           0x1101 * 2^96 + Bluetooth_Base_UUI = 00001101-0000-1000-8000-00805f9b34fb
-         */
-        var found = false
-        for (uuid in bluetoothDevice.uuids) {
-            Log.i(TAG, "uuid ${uuid.uuid}")
-            if (uuid.uuid == Bluetooth.serialPortProfileUUID) {
-                found = true
-            }
-        }
-        if (!found) {
-            Snackbar.make(toolbar, R.string.err_no_spp_on_device, Snackbar.LENGTH_LONG).show()
-        } else {
-            startService(BluetoothSPPService.createConnectIntent(this, bluetoothDevice))
-        }
-    }
 
 
 
@@ -372,62 +334,3 @@ class ChooseDeviceActivity : AppCompatActivity(), BlDevicesAdapter.Listener {
 }
 
 
-class BlDevicesAdapter(
-        val items: List<BluetoothDevice>,
-        val listener: Listener
-
-): RecyclerView.Adapter<BlDevicesAdapter.ViewHolder>() {
-    interface Listener {
-        fun onItemSelected(position: Int, bluetoothDevice: BluetoothDevice)
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.device_list_item, parent, false))
-    }
-
-    override fun getItemCount(): Int = items.size
-
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val device = items[position]
-        holder.text.text = "${device.name} (${device.address})"
-        val bondState = when (device.bondState) {
-            BluetoothDevice.BOND_NONE -> "none"
-            BluetoothDevice.BOND_BONDING -> "bonding"
-            BluetoothDevice.BOND_BONDED -> "bonded"
-            else -> "n/a"
-        }
-
-        val deviceType = when(device.type) {
-            BluetoothDevice.DEVICE_TYPE_CLASSIC -> "classic"
-            BluetoothDevice.DEVICE_TYPE_DUAL -> "dual"
-            BluetoothDevice.DEVICE_TYPE_LE -> "LE"
-            BluetoothDevice.DEVICE_TYPE_UNKNOWN -> "unknown"
-            else -> "n/a"
-        }
-
-        val deviceMajorClass =  when(device.bluetoothClass.majorDeviceClass) {
-            BluetoothClass.Device.Major.AUDIO_VIDEO -> "audio/video"
-            BluetoothClass.Device.Major.COMPUTER -> "computer"
-            BluetoothClass.Device.Major.HEALTH -> "health"
-            BluetoothClass.Device.Major.IMAGING -> "imaging"
-            BluetoothClass.Device.Major.MISC -> "misc"
-            BluetoothClass.Device.Major.NETWORKING -> "networking"
-            BluetoothClass.Device.Major.PERIPHERAL -> "peripheral"
-            BluetoothClass.Device.Major.PHONE -> "phone"
-            BluetoothClass.Device.Major.TOY -> "toy"
-            BluetoothClass.Device.Major.UNCATEGORIZED -> "uncategorized"
-            BluetoothClass.Device.Major.WEARABLE -> "wearable"
-            else -> "n/a"
-        }
-
-        holder.subtext.text = "type: $deviceType class: $deviceMajorClass state: $bondState"
-    }
-
-    inner class ViewHolder(view: View): RecyclerView.ViewHolder(view) {
-        var text: TextView = view.findViewById(R.id.text)
-        var subtext: TextView = view.findViewById(R.id.subtext)
-        init {
-            view.setOnClickListener { listener.onItemSelected( adapterPosition , items[adapterPosition])}
-        }
-    }
-}
